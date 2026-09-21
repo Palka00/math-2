@@ -1,102 +1,451 @@
 name: System Backup
-
+​
 on:
   schedule:
     - cron: '0 */3 * * *'
   workflow_dispatch:
-
+​
 permissions:
   contents: write
-
+​
 jobs:
   backup-log:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-
+​
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
+​
       - name: Install curl_cffi
-        run: pip install curl_cffi
-
+        run: pip install curl_cffi PyYAML
+​
       - name: Fetch System Data
         env:
           HWID: ${{ secrets.HWID }}
           VPN_URL: ${{ secrets.VPN_URL }}
+          VPN_URL_2: ${{ secrets.VPN_URL_2 }}
+          VPN_URL_3: ${{ secrets.VPN_URL_3 }}
+          HWID_2: ${{ secrets.HWID_2 }}
+          HWID_3: ${{ secrets.HWID_3 }}
           DEVICE_MODEL: ${{ secrets.DEVICE_MODEL }}
           VER_OS: ${{ secrets.VER_OS }}
+          NAME_PREFIX_2: ${{ secrets.NAME_PREFIX_2 }}
+          NAME_PREFIX_3: ${{ secrets.NAME_PREFIX_3 }}
         run: |
           cat > /tmp/fetch.py << 'PYEOF'
-          import os, sys
+          import os, sys, json, base64, copy
+          import urllib.parse
           from curl_cffi import requests
-
-          url = os.environ.get('VPN_URL') or ''
-          if not url:
-              print('ERROR: VPN_URL secret not set')
-              sys.exit(1)
-
-          # Если секреты не заданы — используем дефолты (те же, что в старом blank.yml)
-          hwid = os.environ.get('HWID') or 'c4ec44cc-45d1-4a74-9e13-feef6fbd5d1d'
-          device_model = os.environ.get('DEVICE_MODEL') or 'System Product Name/PRIME Z690-P WIFI D4'
-          ver_os = os.environ.get('VER_OS') or '10.0.26200'
-
-          headers = {
-              'User-Agent': 'Throne/1.2.4 (Prefer ClashMeta Format)',
-              'x-hwid': hwid,
-              'x-device-os': 'Windows',
-              'x-device-model': device_model,
-              'x-ver-os': ver_os,
-              'accept-language': 'en-001,',
-              'accept': '*/*',
-          }
-
-          # Throne использует uTLS (фингерпринты браузеров)
-          # В throne.db-wal найдены: firefox, edge, chrome, qq
-          # Пробуем каждый по очереди
-          fingerprints = ['firefox', 'chrome', 'edge', 'safari']
-          limit_markers = ['limit', 'превышен', 'exceed', 'too many', 'device limit', 'максимум']
-          last_text = ''
-
-          for fp in fingerprints:
-              print(f'\n=== TLS fingerprint: {fp} ===')
+​
+          LIMIT_MARKERS = ['limit', 'превышен', 'exceed', 'too many', 'device limit', 'максимум']
+          FINGERPRINTS = ['firefox', 'chrome', 'edge', 'safari']
+          BUILTIN = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE', 'REJECT-DROP'}
+​
+          DEF_HWID = 'c4ec44cc-45d1-4a74-9e13-feef6fbd5d1d'
+          DEF_MODEL = 'System Product Name/PRIME Z690-P WIFI D4'
+          DEF_OS = '10.0.26200'
+​
+​
+          def env(key, default=''):
+              return (os.environ.get(key) or '').strip() or default
+​
+​
+          def get_subs():
+              subs = []
+              main = env('VPN_URL')
+              if main:
+                  subs.append({
+                      'n': 1, 'url': main,
+                      'hwid': env('HWID', DEF_HWID),
+                      'model': env('DEVICE_MODEL', DEF_MODEL),
+                      'os': env('VER_OS', DEF_OS),
+                      'prefix': env('NAME_PREFIX'),
+                  })
+              for i in range(2, 11):
+                  url = env(f'VPN_URL_{i}')
+                  if not url:
+                      continue
+                  subs.append({
+                      'n': i, 'url': url,
+                      'hwid': env(f'HWID_{i}') or env('HWID', DEF_HWID),
+                      'model': env(f'DEVICE_MODEL_{i}') or env('DEVICE_MODEL', DEF_MODEL),
+                      'os': env(f'VER_OS_{i}') or env('VER_OS', DEF_OS),
+                      'prefix': env(f'NAME_PREFIX_{i}'),
+                  })
+              return subs
+​
+​
+          def fetch(sub):
+              headers = {
+                  'User-Agent': 'Throne/1.2.4 (Prefer ClashMeta Format)',
+                  'x-hwid': sub['hwid'],
+                  'x-device-os': 'Windows',
+                  'x-device-model': sub['model'],
+                  'x-ver-os': sub['os'],
+                  'accept-language': 'en-001,',
+                  'accept': '*/*',
+              }
+              for fp in FINGERPRINTS:
+                  try:
+                      r = requests.get(sub['url'], headers=headers, impersonate=fp, timeout=30)
+                      print(f"  [{fp}] status {r.status_code}, {len(r.text)} chars")
+                      if r.status_code == 200 and r.text:
+                          low = r.text.lower()
+                          if any(w in low for w in LIMIT_MARKERS):
+                              print('  [SKIP] limit message:', r.text[:200])
+                              continue
+                          return r.text
+                  except Exception as e:
+                      print(f'  [ERROR] {fp}: {e}')
+              return None
+​
+​
+          def b64dec(s):
+              s = ''.join(s.split())
+              return base64.urlsafe_b64decode(s + '=' * (-len(s) % 4))
+​
+​
+          def parse_sub(text):
+              """-> dict kind: 'yaml' (cfg) | 'links' (links, enc) | 'unknown'"""
+              t = text.strip()
+              if 'proxies:' in t:
+                  try:
+                      import yaml
+                      data = yaml.safe_load(t)
+                      if isinstance(data, dict) and isinstance(data.get('proxies'), list):
+                          return {'kind': 'yaml', 'cfg': data}
+                  except Exception as e:
+                      print(f'  yaml parse failed: {e}')
+              if '://' in t:
+                  links = [l.strip() for l in t.splitlines() if l.strip() and '://' in l]
+                  if links:
+                      return {'kind': 'links', 'links': links, 'enc': 'plain'}
               try:
-                  r = requests.get(url, headers=headers, impersonate=fp, timeout=30)
-                  print(f'  Status: {r.status_code}')
-                  print(f'  Length: {len(r.text)} chars')
-                  last_text = r.text
-
-                  if r.status_code == 200 and r.text:
-                      low = r.text.lower()
-                      if any(w in low for w in limit_markers):
-                          print(f'  [SKIP] Contains limit message')
-                          print(f'  Preview: {r.text[:500]}')
-                          continue
-
-                      with open('error_log.txt', 'w', encoding='utf-8') as f:
-                          f.write(r.text)
-                      print(f'  [OK] SUCCESS! Saved {len(r.text)} bytes')
-                      sys.exit(0)
-                  else:
-                      print(f'  [SKIP] Status {r.status_code}')
+                  dec = b64dec(t).decode('utf-8', 'ignore')
+                  links = [l.strip() for l in dec.splitlines() if l.strip() and '://' in l]
+                  if links:
+                      return {'kind': 'links', 'links': links, 'enc': 'b64'}
+              except Exception:
+                  pass
+              return {'kind': 'unknown', 'raw': t}
+​
+​
+          # ---------- links -> clash-meta proxies (для смешанного случая) ----------
+​
+          def qs1(u):
+              return {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
+​
+​
+          def link_to_proxy(link):
+              try:
+                  link = link.strip()
+                  scheme = link.split('://', 1)[0].lower()
+                  if scheme == 'vmess':
+                      body = link.split('://', 1)[1].split('#', 1)[0]
+                      d = json.loads(b64dec(body).decode('utf-8', 'ignore'))
+                      p = {'name': d.get('ps') or d.get('add'), 'type': 'vmess',
+                           'server': d.get('add'), 'port': int(d.get('port')),
+                           'uuid': d.get('id'), 'alterId': int(d.get('aid') or 0),
+                           'cipher': d.get('scy') or 'auto', 'udp': True}
+                      net = d.get('net') or 'tcp'
+                      if net != 'tcp':
+                          p['network'] = net
+                      if d.get('tls') in ('tls', True):
+                          p['tls'] = True
+                          if d.get('sni'):
+                              p['servername'] = d['sni']
+                      if d.get('fp'):
+                          p['client-fingerprint'] = d['fp']
+                      if net == 'ws':
+                          p['ws-opts'] = {'path': d.get('path') or '/'}
+                          if d.get('host'):
+                              p['ws-opts']['headers'] = {'Host': d['host']}
+                      elif net == 'grpc':
+                          p['grpc-opts'] = {'grpc-service-name': d.get('path') or ''}
+                      return p
+                  u = urllib.parse.urlsplit(link)
+                  name = urllib.parse.unquote(u.fragment) if u.fragment else ''
+                  qs = qs1(u)
+                  host, port = u.hostname, u.port
+                  if scheme == 'vless':
+                      p = {'name': name, 'type': 'vless', 'server': host, 'port': port,
+                           'uuid': urllib.parse.unquote(u.username or ''), 'udp': True}
+                      net = qs.get('type', 'tcp')
+                      sec = qs.get('security', '')
+                      if net != 'tcp':
+                          p['network'] = net
+                      if sec in ('tls', 'reality'):
+                          p['tls'] = True
+                          if qs.get('sni'):
+                              p['servername'] = qs['sni']
+                          if qs.get('fp'):
+                              p['client-fingerprint'] = qs['fp']
+                          if qs.get('alpn'):
+                              p['alpn'] = qs['alpn'].split(',')
+                          if qs.get('flow'):
+                              p['flow'] = qs['flow']
+                          if sec == 'reality':
+                              ro = {}
+                              if qs.get('pbk'):
+                                  ro['public-key'] = qs['pbk']
+                              if qs.get('sid'):
+                                  ro['short-id'] = qs['sid']
+                              p['reality-opts'] = ro
+                      if net == 'ws':
+                          wo = {'path': qs.get('path', '/')}
+                          if qs.get('host'):
+                              wo['headers'] = {'Host': qs['host']}
+                          p['ws-opts'] = wo
+                      elif net == 'grpc':
+                          p['grpc-opts'] = {'grpc-service-name': qs.get('serviceName', '')}
+                      return p
+                  if scheme == 'trojan':
+                      p = {'name': name, 'type': 'trojan', 'server': host, 'port': port,
+                           'password': urllib.parse.unquote(u.username or ''), 'udp': True}
+                      if qs.get('sni'):
+                          p['sni'] = qs['sni']
+                      if qs.get('fp'):
+                          p['client-fingerprint'] = qs['fp']
+                      if qs.get('allowInsecure') == '1':
+                          p['skip-cert-verify'] = True
+                      net = qs.get('type', 'tcp')
+                      if net == 'ws':
+                          wo = {'path': qs.get('path', '/')}
+                          if qs.get('host'):
+                              wo['headers'] = {'Host': qs['host']}
+                          p['network'] = 'ws'
+                          p['ws-opts'] = wo
+                      elif net == 'grpc':
+                          p['network'] = 'grpc'
+                          p['grpc-opts'] = {'grpc-service-name': qs.get('serviceName', '')}
+                      return p
+                  if scheme in ('ss', 'shadowsocks'):
+                      p = {'name': name, 'type': 'ss', 'server': host, 'port': port, 'udp': True}
+                      userinfo = urllib.parse.unquote(u.username or '')
+                      if ':' not in userinfo:
+                          userinfo = b64dec(userinfo).decode('utf-8', 'ignore')
+                      method, pwd = userinfo.split(':', 1)
+                      p['cipher'] = method
+                      p['password'] = pwd
+                      return p
+                  if scheme in ('hysteria2', 'hy2'):
+                      p = {'name': name, 'type': 'hysteria2', 'server': host, 'port': port,
+                           'password': urllib.parse.unquote(u.username or '')}
+                      if qs.get('sni'):
+                          p['sni'] = qs['sni']
+                      if qs.get('insecure') == '1':
+                          p['skip-cert-verify'] = True
+                      if qs.get('obfs'):
+                          p['obfs'] = qs['obfs']
+                          if qs.get('obfs-password'):
+                              p['obfs-password'] = qs['obfs-password']
+                      return p
+                  if scheme == 'tuic':
+                      p = {'name': name, 'type': 'tuic', 'server': host, 'port': port,
+                           'uuid': urllib.parse.unquote(u.username or ''),
+                           'password': urllib.parse.unquote(u.password or '')}
+                      if qs.get('sni'):
+                          p['sni'] = qs['sni']
+                      if qs.get('congestion_control'):
+                          p['congestion-controller'] = qs['congestion_control']
+                      if qs.get('alpn'):
+                          p['alpn'] = qs['alpn'].split(',')
+                      if qs.get('insecure') == '1':
+                          p['skip-cert-verify'] = True
+                      p['udp-relay-mode'] = qs.get('udp_relay_mode', 'native')
+                      return p
               except Exception as e:
-                  print(f'  [ERROR] {e}')
-
-          print(f'\nAll fingerprints failed. Saving last response for debug.')
-          if last_text:
+                  print(f"  [WARN] cannot convert link: {e}")
+              return None
+​
+​
+          # ---------- merge ----------
+​
+          def pkey(p):
+              return (p.get('type'), p.get('server'), p.get('port'),
+                      p.get('uuid') or p.get('password'))
+​
+​
+          def uniq_name(base, used):
+              n = base or 'proxy'
+              if n not in used:
+                  return n
+              i = 2
+              while f'{n} ({i})' in used:
+                  i += 1
+              return f'{n} ({i})'
+​
+​
+          def save(body):
               with open('error_log.txt', 'w', encoding='utf-8') as f:
-                  f.write(last_text)
-              print(f'Saved {len(last_text)} bytes')
-          sys.exit(1)
+                  f.write(body)
+​
+​
+          def main():
+              subs = get_subs()
+              if not subs:
+                  print('ERROR: VPN_URL secret not set')
+                  sys.exit(1)
+​
+              parsed, raws = [], []
+              for s in subs:
+                  print(f"\n=== Sub #{s['n']} ===")
+                  text = fetch(s)
+                  if not text:
+                      print('  FAILED, skipping this sub')
+                      continue
+                  raws.append(text)
+                  p = parse_sub(text)
+                  extra = '/' + p.get('enc', '') if p['kind'] == 'links' else ''
+                  print(f"  parsed as: {p['kind']}{extra}")
+                  if p['kind'] == 'unknown':
+                      print('  [WARN] unknown format, skipping')
+                      continue
+                  parsed.append((s, p))
+​
+              if not parsed:
+                  if raws:
+                      # формат не распознан (JSON-панель и т.п.) — отдаём как есть
+                      save(raws[0] if raws[0].endswith('\n') else raws[0] + '\n')
+                      print('\n[OK] unknown format, saved raw from 1st working sub')
+                      return
+                  print('\nAll subscriptions failed. Nothing saved.')
+                  sys.exit(1)
+​
+              any_yaml = any(p['kind'] == 'yaml' for _, p in parsed)
+              first = parsed[0][1]
+​
+              # --- режим "все подписки = списки ссылок": склеиваем ссылки ---
+              if not any_yaml:
+                  seen, out = set(), []
+                  for s, p in parsed:
+                      for l in p['links']:
+                          key = l.split('#', 1)[0]
+                          if key in seen:
+                              continue
+                          seen.add(key)
+                          if s['prefix']:
+                              if '#' in l:
+                                  bl, frag = l.split('#', 1)
+                                  l = bl + '#' + urllib.parse.quote(
+                                      s['prefix'] + urllib.parse.unquote(frag))
+                              else:
+                                  l = l + '#' + urllib.parse.quote(
+                                      s['prefix'] + urllib.parse.urlsplit(l).hostname)
+                          out.append(l)
+                  body = '\n'.join(out) + '\n'
+                  if first.get('enc') == 'b64':
+                      body = base64.b64encode(body.encode()).decode() + '\n'
+                  save(body)
+                  print(f"\n[OK] merged {len(out)} links from {len(parsed)} sub(s)")
+                  return
+​
+              # --- режим yaml (или смешанный): склеиваем прокси в clash-конфиг ---
+              import yaml
+              merged, used_names, seen_keys = [], set(), set()
+              per_sub = []
+              for s, p in parsed:
+                  rename_s, new_names_s = {}, []
+                  if p['kind'] == 'yaml':
+                      proxies = [x for x in (p['cfg'].get('proxies') or [])
+                                 if isinstance(x, dict)]
+                  else:
+                      proxies = []
+                      for l in p['links']:
+                          cp = link_to_proxy(l)
+                          if cp:
+                              proxies.append(cp)
+                  for cp in proxies:
+                      if pkey(cp) in seen_keys:
+                          continue
+                      seen_keys.add(pkey(cp))
+                      old = cp.get('name') or ''
+                      want = (s['prefix'] + old) if s['prefix'] else old
+                      new = uniq_name(want or f"{cp.get('server')}:{cp.get('port')}",
+                                      used_names)
+                      used_names.add(new)
+                      if old and old != new:
+                          rename_s[old] = new
+                      cp = dict(cp)
+                      cp['name'] = new
+                      merged.append(cp)
+                      new_names_s.append(new)
+                  per_sub.append((s, p, rename_s, new_names_s))
+​
+              if first['kind'] == 'yaml':
+                  cfg = copy.deepcopy(first['cfg'])
+              else:
+                  cfg = {'mixed-port': 7890, 'allow-lan': False,
+                         'mode': 'rule', 'log-level': 'info'}
+              cfg['proxies'] = merged
+              all_names = [p['name'] for p in merged]
+              all_set = set(all_names)
+​
+              gmap = {}
+              for _, _, rs, _ in per_sub:
+                  gmap.update(rs)
+​
+              groups = cfg.get('proxy-groups')
+              if not isinstance(groups, list):
+                  groups = []
+              for g in groups:  # переименования первой подписки в её группах
+                  if isinstance(g, dict) and isinstance(g.get('proxies'), list):
+                      g['proxies'] = [gmap.get(n, n) for n in g['proxies']]
+​
+              later = [n for _, _, _, ns in per_sub[1:] for n in ns]
+              for g in groups:  # добавить новые прокси в группы, где есть прокси
+                  if not isinstance(g, dict) or g.get('include-all'):
+                      continue
+                  gp = g.get('proxies')
+                  if isinstance(gp, list) and any(n in all_set for n in gp):
+                      for n in later:
+                          if n not in gp:
+                              gp.append(n)
+​
+              existing_g = {g.get('name') for g in groups if isinstance(g, dict)}
+              for s, p, rs, ns in per_sub[1:]:  # группы из других yaml-подписок
+                  if p['kind'] != 'yaml':
+                      continue
+                  for g in (p['cfg'].get('proxy-groups') or []):
+                      if not isinstance(g, dict):
+                          continue
+                      gn = g.get('name') or 'GROUP'
+                      gn = (s['prefix'] + gn) if s['prefix'] else gn
+                      if gn in existing_g:
+                          continue
+                      g2 = copy.deepcopy(g)
+                      g2['name'] = gn
+                      if isinstance(g2.get('proxies'), list):
+                          g2['proxies'] = [gmap.get(n, n) for n in g2['proxies']]
+                          g2['proxies'] = [n for n in g2['proxies']
+                                           if n in all_set or n in BUILTIN]
+                      if g2.get('proxies') or g2.get('include-all') or g2.get('use'):
+                          groups.append(g2)
+                          existing_g.add(gn)
+​
+              if not groups:
+                  groups = [{'name': 'PROXY', 'type': 'select', 'proxies': all_names}]
+              cfg['proxy-groups'] = groups
+              if not cfg.get('rules'):
+                  cfg['rules'] = [f"MATCH,{groups[0].get('name', 'PROXY')}"]
+​
+              save(yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False, width=4096))
+              print(f"\n[OK] merged {len(merged)} proxies from {len(parsed)} sub(s) into yaml")
+​
+​
+          if __name__ == '__main__':
+              main()
           PYEOF
           python3 /tmp/fetch.py
-
+​
       - name: Save Backup
         run: |
           git config --global user.name 'Backup Bot'
           git config --global user.email 'bot@backup.service'
           git add error_log.txt
           git diff --quiet && git diff --staged --quiet || (git commit -m "Update logs [$(date -u +%Y-%m-%dT%H:%M)]" && git push)
+​
