@@ -1,28 +1,28 @@
 name: System Backup
-​
+
 on:
   schedule:
     - cron: '0 */3 * * *'
   workflow_dispatch:
-​
+
 permissions:
   contents: write
-​
+
 jobs:
   backup-log:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-​
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-​
+
       - name: Install curl_cffi
         run: pip install curl_cffi PyYAML
-​
+
       - name: Fetch System Data
         env:
           HWID: ${{ secrets.HWID }}
@@ -40,20 +40,20 @@ jobs:
           import os, sys, json, base64, copy
           import urllib.parse
           from curl_cffi import requests
-​
+
           LIMIT_MARKERS = ['limit', 'превышен', 'exceed', 'too many', 'device limit', 'максимум']
           FINGERPRINTS = ['firefox', 'chrome', 'edge', 'safari']
           BUILTIN = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE', 'REJECT-DROP'}
-​
+
           DEF_HWID = 'c4ec44cc-45d1-4a74-9e13-feef6fbd5d1d'
           DEF_MODEL = 'System Product Name/PRIME Z690-P WIFI D4'
           DEF_OS = '10.0.26200'
-​
-​
+
+
           def env(key, default=''):
               return (os.environ.get(key) or '').strip() or default
-​
-​
+
+
           def get_subs():
               subs = []
               main = env('VPN_URL')
@@ -77,8 +77,8 @@ jobs:
                       'prefix': env(f'NAME_PREFIX_{i}'),
                   })
               return subs
-​
-​
+
+
           def fetch(sub):
               headers = {
                   'User-Agent': 'Throne/1.2.4 (Prefer ClashMeta Format)',
@@ -102,13 +102,13 @@ jobs:
                   except Exception as e:
                       print(f'  [ERROR] {fp}: {e}')
               return None
-​
-​
+
+
           def b64dec(s):
               s = ''.join(s.split())
               return base64.urlsafe_b64decode(s + '=' * (-len(s) % 4))
-​
-​
+
+
           def parse_sub(text):
               """-> dict kind: 'yaml' (cfg) | 'links' (links, enc) | 'unknown'"""
               t = text.strip()
@@ -132,14 +132,14 @@ jobs:
               except Exception:
                   pass
               return {'kind': 'unknown', 'raw': t}
-​
-​
+
+
           # ---------- links -> clash-meta proxies (для смешанного случая) ----------
-​
+
           def qs1(u):
               return {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
-​
-​
+
+
           def link_to_proxy(link):
               try:
                   link = link.strip()
@@ -261,15 +261,15 @@ jobs:
               except Exception as e:
                   print(f"  [WARN] cannot convert link: {e}")
               return None
-​
-​
+
+
           # ---------- merge ----------
-​
+
           def pkey(p):
               return (p.get('type'), p.get('server'), p.get('port'),
                       p.get('uuid') or p.get('password'))
-​
-​
+
+
           def uniq_name(base, used):
               n = base or 'proxy'
               if n not in used:
@@ -278,19 +278,19 @@ jobs:
               while f'{n} ({i})' in used:
                   i += 1
               return f'{n} ({i})'
-​
-​
+
+
           def save(body):
               with open('error_log.txt', 'w', encoding='utf-8') as f:
                   f.write(body)
-​
-​
+
+
           def main():
               subs = get_subs()
               if not subs:
                   print('ERROR: VPN_URL secret not set')
                   sys.exit(1)
-​
+
               parsed, raws = [], []
               for s in subs:
                   print(f"\n=== Sub #{s['n']} ===")
@@ -306,7 +306,7 @@ jobs:
                       print('  [WARN] unknown format, skipping')
                       continue
                   parsed.append((s, p))
-​
+
               if not parsed:
                   if raws:
                       # формат не распознан (JSON-панель и т.п.) — отдаём как есть
@@ -315,10 +315,10 @@ jobs:
                       return
                   print('\nAll subscriptions failed. Nothing saved.')
                   sys.exit(1)
-​
+
               any_yaml = any(p['kind'] == 'yaml' for _, p in parsed)
               first = parsed[0][1]
-​
+
               # --- режим "все подписки = списки ссылок": склеиваем ссылки ---
               if not any_yaml:
                   seen, out = set(), []
@@ -343,7 +343,7 @@ jobs:
                   save(body)
                   print(f"\n[OK] merged {len(out)} links from {len(parsed)} sub(s)")
                   return
-​
+
               # --- режим yaml (или смешанный): склеиваем прокси в clash-конфиг ---
               import yaml
               merged, used_names, seen_keys = [], set(), set()
@@ -375,7 +375,7 @@ jobs:
                       merged.append(cp)
                       new_names_s.append(new)
                   per_sub.append((s, p, rename_s, new_names_s))
-​
+
               if first['kind'] == 'yaml':
                   cfg = copy.deepcopy(first['cfg'])
               else:
@@ -384,18 +384,18 @@ jobs:
               cfg['proxies'] = merged
               all_names = [p['name'] for p in merged]
               all_set = set(all_names)
-​
+
               gmap = {}
               for _, _, rs, _ in per_sub:
                   gmap.update(rs)
-​
+
               groups = cfg.get('proxy-groups')
               if not isinstance(groups, list):
                   groups = []
               for g in groups:  # переименования первой подписки в её группах
                   if isinstance(g, dict) and isinstance(g.get('proxies'), list):
                       g['proxies'] = [gmap.get(n, n) for n in g['proxies']]
-​
+
               later = [n for _, _, _, ns in per_sub[1:] for n in ns]
               for g in groups:  # добавить новые прокси в группы, где есть прокси
                   if not isinstance(g, dict) or g.get('include-all'):
@@ -405,7 +405,7 @@ jobs:
                       for n in later:
                           if n not in gp:
                               gp.append(n)
-​
+
               existing_g = {g.get('name') for g in groups if isinstance(g, dict)}
               for s, p, rs, ns in per_sub[1:]:  # группы из других yaml-подписок
                   if p['kind'] != 'yaml':
@@ -426,26 +426,25 @@ jobs:
                       if g2.get('proxies') or g2.get('include-all') or g2.get('use'):
                           groups.append(g2)
                           existing_g.add(gn)
-​
+
               if not groups:
                   groups = [{'name': 'PROXY', 'type': 'select', 'proxies': all_names}]
               cfg['proxy-groups'] = groups
               if not cfg.get('rules'):
                   cfg['rules'] = [f"MATCH,{groups[0].get('name', 'PROXY')}"]
-​
+
               save(yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False, width=4096))
               print(f"\n[OK] merged {len(merged)} proxies from {len(parsed)} sub(s) into yaml")
-​
-​
+
+
           if __name__ == '__main__':
               main()
           PYEOF
           python3 /tmp/fetch.py
-​
+
       - name: Save Backup
         run: |
           git config --global user.name 'Backup Bot'
           git config --global user.email 'bot@backup.service'
           git add error_log.txt
           git diff --quiet && git diff --staged --quiet || (git commit -m "Update logs [$(date -u +%Y-%m-%dT%H:%M)]" && git push)
-​
