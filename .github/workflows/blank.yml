@@ -1,450 +1,606 @@
 name: System Backup
-
+​
 on:
   schedule:
     - cron: '0 */3 * * *'
   workflow_dispatch:
-
+​
 permissions:
   contents: write
-
+​
+concurrency:
+  group: system-backup-${{ github.ref }}
+  cancel-in-progress: false
+​
 jobs:
   backup-log:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
+      - name: Refuse accidental public credential publication
+        env:
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          ALLOW_PUBLIC_OUTPUT: ${{ vars.ALLOW_PUBLIC_OUTPUT }}
+        run: |
+          if [ "$REPOSITORY_PRIVATE" != "true" ] && [ "$ALLOW_PUBLIC_OUTPUT" != "true" ]; then
+            echo "Refusing to commit VPN credentials to a public repository."
+            echo "Use a private repository, or explicitly accept the risk with ALLOW_PUBLIC_OUTPUT=true."
+            exit 1
+          fi
+​
       - name: Checkout
-        uses: actions/checkout@v3
-
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+​
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install curl_cffi
-        run: pip install curl_cffi PyYAML
-
-      - name: Fetch System Data
+​
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check 'curl_cffi==0.13.0' 'PyYAML==6.0.2'
+​
+      - name: Fetch and validate subscriptions
         env:
-          HWID: ${{ secrets.HWID }}
           VPN_URL: ${{ secrets.VPN_URL }}
-          VPN_URL_2: ${{ secrets.VPN_URL_2 }}
-          VPN_URL_3: ${{ secrets.VPN_URL_3 }}
-          HWID_2: ${{ secrets.HWID_2 }}
-          HWID_3: ${{ secrets.HWID_3 }}
+          HWID: ${{ secrets.HWID }}
           DEVICE_MODEL: ${{ secrets.DEVICE_MODEL }}
           VER_OS: ${{ secrets.VER_OS }}
+          USER_AGENT: ${{ secrets.USER_AGENT }}
+          NAME_PREFIX: ${{ secrets.NAME_PREFIX }}
+          VPN_URL_2: ${{ secrets.VPN_URL_2 }}
+          HWID_2: ${{ secrets.HWID_2 }}
+          DEVICE_MODEL_2: ${{ secrets.DEVICE_MODEL_2 }}
+          VER_OS_2: ${{ secrets.VER_OS_2 }}
+          USER_AGENT_2: ${{ secrets.USER_AGENT_2 }}
           NAME_PREFIX_2: ${{ secrets.NAME_PREFIX_2 }}
+          VPN_URL_3: ${{ secrets.VPN_URL_3 }}
+          HWID_3: ${{ secrets.HWID_3 }}
+          DEVICE_MODEL_3: ${{ secrets.DEVICE_MODEL_3 }}
+          VER_OS_3: ${{ secrets.VER_OS_3 }}
+          USER_AGENT_3: ${{ secrets.USER_AGENT_3 }}
           NAME_PREFIX_3: ${{ secrets.NAME_PREFIX_3 }}
+          VPN_URL_4: ${{ secrets.VPN_URL_4 }}
+          HWID_4: ${{ secrets.HWID_4 }}
+          DEVICE_MODEL_4: ${{ secrets.DEVICE_MODEL_4 }}
+          VER_OS_4: ${{ secrets.VER_OS_4 }}
+          USER_AGENT_4: ${{ secrets.USER_AGENT_4 }}
+          NAME_PREFIX_4: ${{ secrets.NAME_PREFIX_4 }}
+          VPN_URL_5: ${{ secrets.VPN_URL_5 }}
+          HWID_5: ${{ secrets.HWID_5 }}
+          DEVICE_MODEL_5: ${{ secrets.DEVICE_MODEL_5 }}
+          VER_OS_5: ${{ secrets.VER_OS_5 }}
+          USER_AGENT_5: ${{ secrets.USER_AGENT_5 }}
+          NAME_PREFIX_5: ${{ secrets.NAME_PREFIX_5 }}
+          VPN_URL_6: ${{ secrets.VPN_URL_6 }}
+          HWID_6: ${{ secrets.HWID_6 }}
+          DEVICE_MODEL_6: ${{ secrets.DEVICE_MODEL_6 }}
+          VER_OS_6: ${{ secrets.VER_OS_6 }}
+          USER_AGENT_6: ${{ secrets.USER_AGENT_6 }}
+          NAME_PREFIX_6: ${{ secrets.NAME_PREFIX_6 }}
+          VPN_URL_7: ${{ secrets.VPN_URL_7 }}
+          HWID_7: ${{ secrets.HWID_7 }}
+          DEVICE_MODEL_7: ${{ secrets.DEVICE_MODEL_7 }}
+          VER_OS_7: ${{ secrets.VER_OS_7 }}
+          USER_AGENT_7: ${{ secrets.USER_AGENT_7 }}
+          NAME_PREFIX_7: ${{ secrets.NAME_PREFIX_7 }}
+          VPN_URL_8: ${{ secrets.VPN_URL_8 }}
+          HWID_8: ${{ secrets.HWID_8 }}
+          DEVICE_MODEL_8: ${{ secrets.DEVICE_MODEL_8 }}
+          VER_OS_8: ${{ secrets.VER_OS_8 }}
+          USER_AGENT_8: ${{ secrets.USER_AGENT_8 }}
+          NAME_PREFIX_8: ${{ secrets.NAME_PREFIX_8 }}
+          VPN_URL_9: ${{ secrets.VPN_URL_9 }}
+          HWID_9: ${{ secrets.HWID_9 }}
+          DEVICE_MODEL_9: ${{ secrets.DEVICE_MODEL_9 }}
+          VER_OS_9: ${{ secrets.VER_OS_9 }}
+          USER_AGENT_9: ${{ secrets.USER_AGENT_9 }}
+          NAME_PREFIX_9: ${{ secrets.NAME_PREFIX_9 }}
+          VPN_URL_10: ${{ secrets.VPN_URL_10 }}
+          HWID_10: ${{ secrets.HWID_10 }}
+          DEVICE_MODEL_10: ${{ secrets.DEVICE_MODEL_10 }}
+          VER_OS_10: ${{ secrets.VER_OS_10 }}
+          USER_AGENT_10: ${{ secrets.USER_AGENT_10 }}
+          NAME_PREFIX_10: ${{ secrets.NAME_PREFIX_10 }}
         run: |
-          cat > /tmp/fetch.py << 'PYEOF'
-          import os, sys, json, base64, copy
-          import urllib.parse
-          from curl_cffi import requests
-
-          LIMIT_MARKERS = ['limit', 'превышен', 'exceed', 'too many', 'device limit', 'максимум']
-          FINGERPRINTS = ['firefox', 'chrome', 'edge', 'safari']
-          BUILTIN = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE', 'REJECT-DROP'}
-
-          DEF_HWID = 'c4ec44cc-45d1-4a74-9e13-feef6fbd5d1d'
-          DEF_MODEL = 'System Product Name/PRIME Z690-P WIFI D4'
-          DEF_OS = '10.0.26200'
-
-
+          cat > "$RUNNER_TEMP/fetch.py" <<'PYEOF'
+          import base64
+          import copy
+          import json
+          import os
+          import re
+          import sys
+          import time
+          from pathlib import Path
+          from urllib.parse import parse_qs, quote, unquote, urlsplit
+          
+          import yaml
+          
+          # Synthetic, stable identity; not an actual iPhone HWID.
+          DEFAULT_HWID = 'a730c6e9-845f-4b2c-9817-65d028e3f4aa'
+          DEFAULT_MODEL = 'iPhone 16 Pro'
+          DEFAULT_OS = '26.7.1'
+          # Configurable approximation, NOT a verified stock Happ iOS User-Agent.
+          DEFAULT_UA = 'Happ/5.9.0'
+          OUTPUT = Path('error_log.txt')
+          SCHEMES = {'vless', 'vmess', 'trojan', 'ss', 'shadowsocks',
+                     'hysteria2', 'hy2', 'tuic', 'socks', 'socks5'}
+          BUILTIN = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE',
+                     'REJECT-DROP'}
+          MAX_BYTES = 8 * 1024 * 1024
+          
+          
+          class Invalid(Exception):
+              pass
+          
+          
           def env(key, default=''):
-              return (os.environ.get(key) or '').strip() or default
-
-
-          def get_subs():
-              subs = []
-              main = env('VPN_URL')
-              if main:
-                  subs.append({
-                      'n': 1, 'url': main,
-                      'hwid': env('HWID', DEF_HWID),
-                      'model': env('DEVICE_MODEL', DEF_MODEL),
-                      'os': env('VER_OS', DEF_OS),
-                      'prefix': env('NAME_PREFIX'),
-                  })
-              for i in range(2, 11):
-                  url = env(f'VPN_URL_{i}')
+              return os.environ.get(key, '').strip() or default
+          
+          
+          def setting(key, n, default=''):
+              return env(f'{key}_{n}', env(key, default)) if n > 1 else env(key, default)
+          
+          
+          def subscriptions():
+              out = []
+              for n in range(1, 11):
+                  url = env('VPN_URL' if n == 1 else f'VPN_URL_{n}')
                   if not url:
                       continue
-                  subs.append({
-                      'n': i, 'url': url,
-                      'hwid': env(f'HWID_{i}') or env('HWID', DEF_HWID),
-                      'model': env(f'DEVICE_MODEL_{i}') or env('DEVICE_MODEL', DEF_MODEL),
-                      'os': env(f'VER_OS_{i}') or env('VER_OS', DEF_OS),
-                      'prefix': env(f'NAME_PREFIX_{i}'),
-                  })
-              return subs
-
-
-          def fetch(sub):
-              headers = {
-                  'User-Agent': 'Throne/1.2.4 (Prefer ClashMeta Format)',
-                  'x-hwid': sub['hwid'],
-                  'x-device-os': 'Windows',
-                  'x-device-model': sub['model'],
-                  'x-ver-os': sub['os'],
-                  'accept-language': 'en-001,',
-                  'accept': '*/*',
-              }
-              for fp in FINGERPRINTS:
-                  try:
-                      r = requests.get(sub['url'], headers=headers, impersonate=fp, timeout=30)
-                      print(f"  [{fp}] status {r.status_code}, {len(r.text)} chars")
-                      if r.status_code == 200 and r.text:
-                          low = r.text.lower()
-                          if any(w in low for w in LIMIT_MARKERS):
-                              print('  [SKIP] limit message:', r.text[:200])
-                              continue
-                          return r.text
-                  except Exception as e:
-                      print(f'  [ERROR] {fp}: {e}')
-              return None
-
-
-          def b64dec(s):
-              s = ''.join(s.split())
-              return base64.urlsafe_b64decode(s + '=' * (-len(s) % 4))
-
-
-          def parse_sub(text):
-              """-> dict kind: 'yaml' (cfg) | 'links' (links, enc) | 'unknown'"""
-              t = text.strip()
-              if 'proxies:' in t:
-                  try:
-                      import yaml
-                      data = yaml.safe_load(t)
-                      if isinstance(data, dict) and isinstance(data.get('proxies'), list):
-                          return {'kind': 'yaml', 'cfg': data}
-                  except Exception as e:
-                      print(f'  yaml parse failed: {e}')
-              if '://' in t:
-                  links = [l.strip() for l in t.splitlines() if l.strip() and '://' in l]
-                  if links:
-                      return {'kind': 'links', 'links': links, 'enc': 'plain'}
+                  u = urlsplit(url)
+                  if u.scheme != 'https' or not u.hostname or u.username or u.password:
+                      raise Invalid(f'Sub #{n}: use an HTTPS subscription URL without userinfo')
+                  out.append(dict(n=n, url=url,
+                      hwid=setting('HWID', n, DEFAULT_HWID),
+                      model=setting('DEVICE_MODEL', n, DEFAULT_MODEL),
+                      os=setting('VER_OS', n, DEFAULT_OS),
+                      ua=setting('USER_AGENT', n, DEFAULT_UA),
+                      prefix=env('NAME_PREFIX' if n == 1 else f'NAME_PREFIX_{n}')))
+              if not out:
+                  raise Invalid('No VPN_URL secrets configured')
+              return out
+          
+          
+          def b64decode(value):
+              value = re.sub(r'\s+', '', value)
+              return base64.b64decode(value + '=' * (-len(value) % 4),
+                                      altchars=b'-_', validate=True)
+          
+          
+          def uri_list(text):
+              links = []
+              for line in text.splitlines():
+                  line = line.strip()
+                  if not line or line.startswith('#'):
+                      continue
+                  if '://' not in line or line.split('://', 1)[0].lower() not in SCHEMES:
+                      raise Invalid('Unrecognized subscription line')
+                  if any(c.isspace() for c in line):
+                      raise Invalid('Unescaped whitespace in proxy URI')
+                  links.append(line)
+              if not links:
+                  raise Invalid('Empty proxy list')
+              return links
+          
+          
+          def parse(text):
+              text = text.lstrip('\ufeff').strip()
+              if not text or len(text.encode()) > MAX_BYTES:
+                  raise Invalid('Empty or oversized subscription')
+              if text.lower().startswith(('<!doctype', '<html', '<head', '<body')):
+                  raise Invalid('HTML response, not a subscription')
               try:
-                  dec = b64dec(t).decode('utf-8', 'ignore')
-                  links = [l.strip() for l in dec.splitlines() if l.strip() and '://' in l]
-                  if links:
-                      return {'kind': 'links', 'links': links, 'enc': 'b64'}
-              except Exception:
+                  cfg = yaml.safe_load(text)
+              except yaml.YAMLError:
+                  cfg = None
+              if isinstance(cfg, dict) and ('proxies' in cfg or 'proxy-providers' in cfg):
+                  proxies = cfg.get('proxies', [])
+                  providers = cfg.get('proxy-providers', {})
+                  if not isinstance(proxies, list) or not isinstance(providers, dict):
+                      raise Invalid('Malformed Clash proxy fields')
+                  if not proxies and not providers:
+                      raise Invalid('Empty Clash subscription')
+                  return dict(kind='yaml', cfg=cfg)
+              try:
+                  return dict(kind='links', links=uri_list(text), enc='plain',
+                              comments=[l for l in text.splitlines() if l.strip().startswith('#')])
+              except Invalid:
                   pass
-              return {'kind': 'unknown', 'raw': t}
-
-
-          # ---------- links -> clash-meta proxies (для смешанного случая) ----------
-
-          def qs1(u):
-              return {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
-
-
-          def link_to_proxy(link):
               try:
-                  link = link.strip()
-                  scheme = link.split('://', 1)[0].lower()
-                  if scheme == 'vmess':
-                      body = link.split('://', 1)[1].split('#', 1)[0]
-                      d = json.loads(b64dec(body).decode('utf-8', 'ignore'))
-                      p = {'name': d.get('ps') or d.get('add'), 'type': 'vmess',
-                           'server': d.get('add'), 'port': int(d.get('port')),
-                           'uuid': d.get('id'), 'alterId': int(d.get('aid') or 0),
-                           'cipher': d.get('scy') or 'auto', 'udp': True}
-                      net = d.get('net') or 'tcp'
-                      if net != 'tcp':
-                          p['network'] = net
-                      if d.get('tls') in ('tls', True):
-                          p['tls'] = True
-                          if d.get('sni'):
-                              p['servername'] = d['sni']
-                      if d.get('fp'):
-                          p['client-fingerprint'] = d['fp']
-                      if net == 'ws':
-                          p['ws-opts'] = {'path': d.get('path') or '/'}
-                          if d.get('host'):
-                              p['ws-opts']['headers'] = {'Host': d['host']}
-                      elif net == 'grpc':
-                          p['grpc-opts'] = {'grpc-service-name': d.get('path') or ''}
-                      return p
-                  u = urllib.parse.urlsplit(link)
-                  name = urllib.parse.unquote(u.fragment) if u.fragment else ''
-                  qs = qs1(u)
-                  host, port = u.hostname, u.port
+                  decoded = b64decode(text).decode('utf-8')
+                  return dict(kind='links', links=uri_list(decoded), enc='b64',
+                              comments=[l for l in decoded.splitlines() if l.strip().startswith('#')])
+              except (ValueError, UnicodeError, Invalid):
+                  raise Invalid('Unsupported body: expected Clash YAML or proxy URI list') from None
+          
+          
+          def fetch(sub):
+              from curl_cffi import requests
+              headers = {
+                  'User-Agent': sub['ua'], 'x-hwid': sub['hwid'],
+                  'x-device-os': 'iOS', 'x-device-model': sub['model'],
+                  'x-ver-os': sub['os'], 'Accept': '*/*',
+                  'Accept-Language': 'en-US,en;q=0.9',
+              }
+              # Do not rotate identities or TLS profiles on access-denied responses.
+              for attempt in range(3):
+                  try:
+                      r = requests.get(sub['url'], headers=headers,
+                          impersonate='safari', default_headers=False,
+                          allow_redirects=False, timeout=45, verify=True)
+                  except Exception:
+                      print(f"Sub #{sub['n']}: transport failure ({attempt + 1}/3)")
+                      if attempt < 2:
+                          time.sleep(3 * (attempt + 1))
+                          continue
+                      raise Invalid('Transport retries exhausted') from None
+                  print(f"Sub #{sub['n']}: HTTP {r.status_code}")
+                  if r.status_code == 429 or 500 <= r.status_code <= 599:
+                      delay = r.headers.get('retry-after', '')
+                      delay = min(int(delay), 60) if delay.isdigit() else 5 * (attempt + 1)
+                      if attempt < 2:
+                          time.sleep(delay)
+                          continue
+                  if 300 <= r.status_code < 400:
+                      raise Invalid('Redirect refused; configure the final HTTPS URL')
+                  if r.status_code != 200:
+                      raise Invalid(f'HTTP {r.status_code}; access, device limit or server failure')
+                  if len(r.content) > MAX_BYTES:
+                      raise Invalid('Response exceeds size limit')
+                  return parse(r.text)
+              raise Invalid('HTTP retries exhausted')
+          
+          
+          def uri_parts(link):
+              u = urlsplit(link)
+              qs = {k: v[0] for k, v in parse_qs(u.query, keep_blank_values=True).items()}
+              return u, qs
+          
+          
+          def convert(link):
+              scheme = link.split('://', 1)[0].lower()
+              if scheme == 'vmess':
+                  d = json.loads(b64decode(link.split('://', 1)[1].split('#', 1)[0]))
+                  if d.get('net', 'tcp') not in {'tcp', 'ws', 'grpc'}:
+                      raise Invalid('Unsupported VMess transport')
+                  if d.get('type') not in (None, '', 'none'):
+                      raise Invalid('Unsupported VMess header mode')
+                  p = dict(name=d.get('ps') or d['add'], type='vmess', server=d['add'],
+                           port=int(d['port']), uuid=d['id'], alterId=int(d.get('aid') or 0),
+                           cipher=d.get('scy') or 'auto', udp=True)
+                  qs = dict(type=d.get('net', 'tcp'), path=d.get('path') or '/',
+                            host=d.get('host') or '', serviceName=d.get('path') or '',
+                            sni=d.get('sni') or '', fp=d.get('fp') or '')
+                  if d.get('tls') in ('tls', True):
+                      qs['security'] = 'tls'
+                  if d.get('alpn'):
+                      qs['alpn'] = d['alpn']
+              else:
+                  u, qs = uri_parts(link)
+                  port = u.port or (443 if scheme in {'trojan', 'hy2', 'hysteria2', 'tuic'} else None)
+                  if not u.hostname or not port:
+                      raise Invalid('Missing proxy endpoint')
+                  p = dict(name=unquote(u.fragment) or f'{u.hostname}:{port}', server=u.hostname, port=port, udp=True)
+                  user, pwd = unquote(u.username or ''), unquote(u.password or '')
                   if scheme == 'vless':
-                      p = {'name': name, 'type': 'vless', 'server': host, 'port': port,
-                           'uuid': urllib.parse.unquote(u.username or ''), 'udp': True}
-                      net = qs.get('type', 'tcp')
-                      sec = qs.get('security', '')
-                      if net != 'tcp':
-                          p['network'] = net
-                      if sec in ('tls', 'reality'):
-                          p['tls'] = True
-                          if qs.get('sni'):
-                              p['servername'] = qs['sni']
-                          if qs.get('fp'):
-                              p['client-fingerprint'] = qs['fp']
-                          if qs.get('alpn'):
-                              p['alpn'] = qs['alpn'].split(',')
-                          if qs.get('flow'):
-                              p['flow'] = qs['flow']
-                          if sec == 'reality':
-                              ro = {}
-                              if qs.get('pbk'):
-                                  ro['public-key'] = qs['pbk']
-                              if qs.get('sid'):
-                                  ro['short-id'] = qs['sid']
-                              p['reality-opts'] = ro
-                      if net == 'ws':
-                          wo = {'path': qs.get('path', '/')}
-                          if qs.get('host'):
-                              wo['headers'] = {'Host': qs['host']}
-                          p['ws-opts'] = wo
-                      elif net == 'grpc':
-                          p['grpc-opts'] = {'grpc-service-name': qs.get('serviceName', '')}
+                      if u.password is not None or qs.get('encryption', 'none') != 'none':
+                          raise Invalid('Unsupported VLESS authentication/encryption')
+                      p.update(type='vless', uuid=user)
+                  elif scheme == 'trojan':
+                      if u.password is not None:
+                          raise Invalid('Colon in Trojan password must be percent-encoded')
+                      p.update(type='trojan', password=user)
+                      qs.setdefault('security', 'tls')
+                  elif scheme in {'ss', 'shadowsocks'}:
+                      if qs.get('plugin'):
+                          raise Invalid('SS plugins need native Clash YAML')
+                      if u.password is None:
+                          user, pwd = b64decode(user).decode('utf-8').split(':', 1)
+                      p.update(type='ss', cipher=user, password=pwd)
                       return p
-                  if scheme == 'trojan':
-                      p = {'name': name, 'type': 'trojan', 'server': host, 'port': port,
-                           'password': urllib.parse.unquote(u.username or ''), 'udp': True}
-                      if qs.get('sni'):
-                          p['sni'] = qs['sni']
-                      if qs.get('fp'):
-                          p['client-fingerprint'] = qs['fp']
-                      if qs.get('allowInsecure') == '1':
-                          p['skip-cert-verify'] = True
-                      net = qs.get('type', 'tcp')
-                      if net == 'ws':
-                          wo = {'path': qs.get('path', '/')}
-                          if qs.get('host'):
-                              wo['headers'] = {'Host': qs['host']}
-                          p['network'] = 'ws'
-                          p['ws-opts'] = wo
-                      elif net == 'grpc':
-                          p['network'] = 'grpc'
-                          p['grpc-opts'] = {'grpc-service-name': qs.get('serviceName', '')}
-                      return p
-                  if scheme in ('ss', 'shadowsocks'):
-                      p = {'name': name, 'type': 'ss', 'server': host, 'port': port, 'udp': True}
-                      userinfo = urllib.parse.unquote(u.username or '')
-                      if ':' not in userinfo:
-                          userinfo = b64dec(userinfo).decode('utf-8', 'ignore')
-                      method, pwd = userinfo.split(':', 1)
-                      p['cipher'] = method
-                      p['password'] = pwd
-                      return p
-                  if scheme in ('hysteria2', 'hy2'):
-                      p = {'name': name, 'type': 'hysteria2', 'server': host, 'port': port,
-                           'password': urllib.parse.unquote(u.username or '')}
-                      if qs.get('sni'):
-                          p['sni'] = qs['sni']
-                      if qs.get('insecure') == '1':
-                          p['skip-cert-verify'] = True
+                  elif scheme in {'hy2', 'hysteria2'}:
+                      # Hysteria2 supports both password and user:password authentication.
+                      auth = user + (':' + pwd if u.password is not None else '')
+                      p.update(type='hysteria2', password=auth)
                       if qs.get('obfs'):
                           p['obfs'] = qs['obfs']
-                          if qs.get('obfs-password'):
-                              p['obfs-password'] = qs['obfs-password']
-                      return p
-                  if scheme == 'tuic':
-                      p = {'name': name, 'type': 'tuic', 'server': host, 'port': port,
-                           'uuid': urllib.parse.unquote(u.username or ''),
-                           'password': urllib.parse.unquote(u.password or '')}
-                      if qs.get('sni'):
-                          p['sni'] = qs['sni']
+                          p['obfs-password'] = qs.get('obfs-password', '')
+                  elif scheme == 'tuic':
+                      p.update(type='tuic', uuid=user, password=pwd,
+                               **{'udp-relay-mode': qs.get('udp_relay_mode', 'native')})
                       if qs.get('congestion_control'):
                           p['congestion-controller'] = qs['congestion_control']
-                      if qs.get('alpn'):
-                          p['alpn'] = qs['alpn'].split(',')
-                      if qs.get('insecure') == '1':
-                          p['skip-cert-verify'] = True
-                      p['udp-relay-mode'] = qs.get('udp_relay_mode', 'native')
-                      return p
-              except Exception as e:
-                  print(f"  [WARN] cannot convert link: {e}")
-              return None
-
-
-          # ---------- merge ----------
-
-          def pkey(p):
-              return (p.get('type'), p.get('server'), p.get('port'),
-                      p.get('uuid') or p.get('password'))
-
-
-          def uniq_name(base, used):
-              n = base or 'proxy'
-              if n not in used:
-                  return n
-              i = 2
-              while f'{n} ({i})' in used:
-                  i += 1
-              return f'{n} ({i})'
-
-
-          def save(body):
-              with open('error_log.txt', 'w', encoding='utf-8') as f:
-                  f.write(body)
-
-
-          def main():
-              subs = get_subs()
-              if not subs:
-                  print('ERROR: VPN_URL secret not set')
-                  sys.exit(1)
-
-              parsed, raws = [], []
-              for s in subs:
-                  print(f"\n=== Sub #{s['n']} ===")
-                  text = fetch(s)
-                  if not text:
-                      print('  FAILED, skipping this sub')
-                      continue
-                  raws.append(text)
-                  p = parse_sub(text)
-                  extra = '/' + p.get('enc', '') if p['kind'] == 'links' else ''
-                  print(f"  parsed as: {p['kind']}{extra}")
-                  if p['kind'] == 'unknown':
-                      print('  [WARN] unknown format, skipping')
-                      continue
-                  parsed.append((s, p))
-
-              if not parsed:
-                  if raws:
-                      # формат не распознан (JSON-панель и т.п.) — отдаём как есть
-                      save(raws[0] if raws[0].endswith('\n') else raws[0] + '\n')
-                      print('\n[OK] unknown format, saved raw from 1st working sub')
-                      return
-                  print('\nAll subscriptions failed. Nothing saved.')
-                  sys.exit(1)
-
-              any_yaml = any(p['kind'] == 'yaml' for _, p in parsed)
-              first = parsed[0][1]
-
-              # --- режим "все подписки = списки ссылок": склеиваем ссылки ---
-              if not any_yaml:
-                  seen, out = set(), []
-                  for s, p in parsed:
-                      for l in p['links']:
-                          key = l.split('#', 1)[0]
-                          if key in seen:
-                              continue
-                          seen.add(key)
-                          if s['prefix']:
-                              if '#' in l:
-                                  bl, frag = l.split('#', 1)
-                                  l = bl + '#' + urllib.parse.quote(
-                                      s['prefix'] + urllib.parse.unquote(frag))
-                              else:
-                                  l = l + '#' + urllib.parse.quote(
-                                      s['prefix'] + urllib.parse.urlsplit(l).hostname)
-                          out.append(l)
-                  body = '\n'.join(out) + '\n'
-                  if first.get('enc') == 'b64':
-                      body = base64.b64encode(body.encode()).decode() + '\n'
-                  save(body)
-                  print(f"\n[OK] merged {len(out)} links from {len(parsed)} sub(s)")
-                  return
-
-              # --- режим yaml (или смешанный): склеиваем прокси в clash-конфиг ---
-              import yaml
-              merged, used_names, seen_keys = [], set(), set()
-              per_sub = []
-              for s, p in parsed:
-                  rename_s, new_names_s = {}, []
-                  if p['kind'] == 'yaml':
-                      proxies = [x for x in (p['cfg'].get('proxies') or [])
-                                 if isinstance(x, dict)]
                   else:
-                      proxies = []
-                      for l in p['links']:
-                          cp = link_to_proxy(l)
-                          if cp:
-                              proxies.append(cp)
-                  for cp in proxies:
-                      if pkey(cp) in seen_keys:
-                          continue
-                      seen_keys.add(pkey(cp))
-                      old = cp.get('name') or ''
-                      want = (s['prefix'] + old) if s['prefix'] else old
-                      new = uniq_name(want or f"{cp.get('server')}:{cp.get('port')}",
-                                      used_names)
-                      used_names.add(new)
-                      if old and old != new:
-                          rename_s[old] = new
-                      cp = dict(cp)
-                      cp['name'] = new
-                      merged.append(cp)
-                      new_names_s.append(new)
-                  per_sub.append((s, p, rename_s, new_names_s))
-
-              if first['kind'] == 'yaml':
-                  cfg = copy.deepcopy(first['cfg'])
-              else:
-                  cfg = {'mixed-port': 7890, 'allow-lan': False,
-                         'mode': 'rule', 'log-level': 'info'}
-              cfg['proxies'] = merged
-              all_names = [p['name'] for p in merged]
-              all_set = set(all_names)
-
-              gmap = {}
-              for _, _, rs, _ in per_sub:
-                  gmap.update(rs)
-
-              groups = cfg.get('proxy-groups')
-              if not isinstance(groups, list):
-                  groups = []
-              for g in groups:  # переименования первой подписки в её группах
-                  if isinstance(g, dict) and isinstance(g.get('proxies'), list):
-                      g['proxies'] = [gmap.get(n, n) for n in g['proxies']]
-
-              later = [n for _, _, _, ns in per_sub[1:] for n in ns]
-              for g in groups:  # добавить новые прокси в группы, где есть прокси
-                  if not isinstance(g, dict) or g.get('include-all'):
-                      continue
-                  gp = g.get('proxies')
-                  if isinstance(gp, list) and any(n in all_set for n in gp):
-                      for n in later:
-                          if n not in gp:
-                              gp.append(n)
-
-              existing_g = {g.get('name') for g in groups if isinstance(g, dict)}
-              for s, p, rs, ns in per_sub[1:]:  # группы из других yaml-подписок
-                  if p['kind'] != 'yaml':
-                      continue
-                  for g in (p['cfg'].get('proxy-groups') or []):
-                      if not isinstance(g, dict):
-                          continue
-                      gn = g.get('name') or 'GROUP'
-                      gn = (s['prefix'] + gn) if s['prefix'] else gn
-                      if gn in existing_g:
-                          continue
-                      g2 = copy.deepcopy(g)
-                      g2['name'] = gn
-                      if isinstance(g2.get('proxies'), list):
-                          g2['proxies'] = [gmap.get(n, n) for n in g2['proxies']]
-                          g2['proxies'] = [n for n in g2['proxies']
-                                           if n in all_set or n in BUILTIN]
-                      if g2.get('proxies') or g2.get('include-all') or g2.get('use'):
-                          groups.append(g2)
-                          existing_g.add(gn)
-
+                      raise Invalid('Protocol cannot be safely converted; use native Clash YAML')
+              network = qs.get('type', 'tcp')
+              if network not in {'tcp', 'ws', 'grpc'} or qs.get('headerType', 'none') != 'none':
+                  raise Invalid('Unsupported transport; use native Clash YAML')
+              # Fail closed for connection options this converter does not understand.
+              known = {'type', 'security', 'sni', 'peer', 'fp', 'alpn', 'flow', 'pbk', 'sid',
+                       'path', 'host', 'serviceName', 'encryption', 'headerType',
+                       'allowInsecure', 'insecure', 'obfs', 'obfs-password',
+                       'congestion_control', 'udp_relay_mode'}
+              if set(qs) - known:
+                  raise Invalid('Unknown URI connection options; use native Clash YAML')
+              security = qs.get('security', '')
+              if security not in {'', 'none', 'tls', 'reality'}:
+                  raise Invalid('Unsupported TLS mode')
+              if security in {'tls', 'reality'}:
+                  p['tls'] = True
+              sni = qs.get('sni') or qs.get('peer')
+              if sni:
+                  p['servername' if p['type'] in {'vless', 'vmess'} else 'sni'] = sni
+              if qs.get('fp'):
+                  p['client-fingerprint'] = qs['fp']
+              if qs.get('alpn'):
+                  p['alpn'] = qs['alpn'].split(',')
+              if qs.get('flow'):
+                  p['flow'] = qs['flow']
+              if security == 'reality':
+                  if not qs.get('pbk') or p['type'] != 'vless':
+                      raise Invalid('Invalid Reality configuration')
+                  p['reality-opts'] = {'public-key': qs['pbk'], 'short-id': qs.get('sid', '')}
+              if qs.get('insecure', qs.get('allowInsecure', '0')).lower() in {'1', 'true'}:
+                  p['skip-cert-verify'] = True
+              if network == 'ws':
+                  p['network'] = 'ws'
+                  p['ws-opts'] = {'path': qs.get('path') or '/'}
+                  if qs.get('host'):
+                      p['ws-opts']['headers'] = {'Host': qs['host']}
+              elif network == 'grpc':
+                  p['network'] = 'grpc'
+                  p['grpc-opts'] = {'grpc-service-name': qs.get('serviceName', '')}
+              return p
+          
+          
+          def rename_link(link, prefix):
+              if not prefix:
+                  return link
+              if link.lower().startswith('vmess://'):
+                  raw = link.split('://', 1)[1].split('#', 1)[0]
+                  d = json.loads(b64decode(raw))
+                  d['ps'] = prefix + str(d.get('ps') or d.get('add') or 'proxy')
+                  return 'vmess://' + base64.b64encode(
+                      json.dumps(d, ensure_ascii=False, separators=(',', ':')).encode()).decode()
+              base, sep, frag = link.partition('#')
+              label = unquote(frag) if sep else (urlsplit(link).hostname or 'proxy')
+              return base + '#' + quote(prefix + label, safe='')
+          
+          
+          def unique(name, used):
+              name = str(name or 'proxy')
+              result, i = name, 2
+              while result in used:
+                  result, i = f'{name} ({i})', i + 1
+              used.add(result)
+              return result
+          
+          
+          def validate_proxy(p):
+              if not isinstance(p, dict) or not p.get('type') or not p.get('name'):
+                  raise Invalid('Proxy missing name/type')
+              if not p.get('server') or not isinstance(p.get('port'), int) or not 1 <= p['port'] <= 65535:
+                  raise Invalid('Proxy missing valid server/port')
+          
+          
+          def merge(items):
+              if all(p['kind'] == 'links' for _, p in items):
+                  links, seen = [], set()
+                  for sub, parsed in items:
+                      for link in parsed['links']:
+                          key = link.split('#', 1)[0]
+                          if key not in seen:
+                              seen.add(key)
+                              links.append(rename_link(link, sub['prefix']))
+                  body = '\n'.join(items[0][1].get('comments', []) + links) + '\n'
+                  if items[0][1]['enc'] == 'b64':
+                      body = base64.b64encode(body.encode()).decode() + '\n'
+                  return body
+          
+              # First YAML supplies routing/DNS/global settings; later sources supply nodes/groups.
+              base_index = next(i for i, (_, p) in enumerate(items) if p['kind'] == 'yaml')
+              ordered = [items[base_index]] + [x for i, x in enumerate(items) if i != base_index]
+              cfg = copy.deepcopy(ordered[0][1]['cfg'])
+              if cfg.get('sub-rules'):
+                  raise Invalid('sub-rules require a dedicated merge; refusing to alter them')
+              used = set(BUILTIN)
+              proxies, groups, providers, seen = [], [], {}, {}
+              base_map = {}
+              source_choices = []
+              for index, (sub, parsed) in enumerate(ordered):
+                  source = parsed['cfg'] if parsed['kind'] == 'yaml' else {}
+                  ps = copy.deepcopy(source.get('proxies', [])) if source else [convert(l) for l in parsed['links']]
+                  gs = copy.deepcopy(source.get('proxy-groups', []))
+                  pv = copy.deepcopy(source.get('proxy-providers', {}))
+                  if not isinstance(gs, list) or not isinstance(pv, dict):
+                      raise Invalid('Malformed groups/providers')
+                  mapping, provider_map = {}, {}
+                  old_names = [p.get('name') for p in ps if isinstance(p, dict)] + [g.get('name') for g in gs if isinstance(g, dict)]
+                  if len(old_names) != len(ps) + len(gs) or any(not isinstance(n, str) or not n for n in old_names):
+                      raise Invalid('Unnamed or malformed proxy/group')
+                  if len(old_names) != len(set(old_names)) or set(old_names) & BUILTIN:
+                      raise Invalid('Ambiguous or reserved names within one source')
+                  prefix = sub['prefix'] if index == 0 else (sub['prefix'] or f"Sub {sub['n']} · ")
+                  for group in gs:
+                      mapping[group['name']] = unique(prefix + group['name'], used)
+                  for name, provider in pv.items():
+                      new = unique(prefix + name, set(providers))
+                      provider_map[name] = new
+                      if not isinstance(provider, dict):
+                          raise Invalid('Malformed proxy provider')
+                      # Independent cache paths prevent providers overwriting one another.
+                      if provider.get('type') == 'http':
+                          provider['path'] = f"./providers/sub-{sub['n']}-{len(providers)}.yaml"
+                      providers[new] = provider
+                  new_nodes = []
+                  for proxy in ps:
+                      validate_proxy(proxy)
+                      old = proxy['name']
+                      # Retain every connection option in the identity. No endpoint-only dedup.
+                      key = json.dumps({k: v for k, v in proxy.items() if k != 'name'}, sort_keys=True, ensure_ascii=False)
+                      if key in seen:
+                          new = seen[key]
+                      else:
+                          new = unique(prefix + old, used)
+                          seen[key] = new
+                          proxy['name'] = new
+                          proxies.append(proxy)
+                      mapping[old] = new
+                      if new not in new_nodes:
+                          new_nodes.append(new)
+                  for group in gs:
+                      old = group['name']
+                      group['name'] = mapping[old]
+                      if 'proxies' in group:
+                          if not isinstance(group['proxies'], list):
+                              raise Invalid('Malformed group proxy list')
+                          group['proxies'] = list(dict.fromkeys(mapping.get(n, n) for n in group['proxies']))
+                      if 'use' in group:
+                          if not isinstance(group['use'], list):
+                              raise Invalid('Malformed provider references')
+                          group['use'] = [provider_map.get(n, n) for n in group['use']]
+                      groups.append(group)
+                  if index == 0:
+                      base_map = mapping
+                  else:
+                      choice = unique(f"Subscription {sub['n']}", used)
+                      g = dict(name=choice, type='select')
+                      if new_nodes:
+                          g['proxies'] = new_nodes
+                      if provider_map:
+                          g['use'] = list(provider_map.values())
+                      if not new_nodes and not provider_map:
+                          raise Invalid('Source has no usable nodes/providers')
+                      groups.append(g)
+                      source_choices.append(choice)
               if not groups:
-                  groups = [{'name': 'PROXY', 'type': 'select', 'proxies': all_names}]
-              cfg['proxy-groups'] = groups
-              if not cfg.get('rules'):
-                  cfg['rules'] = [f"MATCH,{groups[0].get('name', 'PROXY')}"]
-
-              save(yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False, width=4096))
-              print(f"\n[OK] merged {len(merged)} proxies from {len(parsed)} sub(s) into yaml")
-
-
+                  name = unique('PROXY', used)
+                  group = dict(name=name, type='select')
+                  if proxies:
+                      group['proxies'] = [p['name'] for p in proxies]
+                  if providers:
+                      group['use'] = list(providers)
+                  groups.append(group)
+              # Add source selectors to the first existing manual selector, not every test group.
+              if source_choices:
+                  target = next((g for g in groups if g.get('type') == 'select' and g['name'] not in source_choices), None)
+                  if target:
+                      target.setdefault('proxies', []).extend(source_choices)
+                  else:
+                      raise Invalid('No manual selector to expose additional subscriptions')
+              cfg['proxies'], cfg['proxy-groups'] = proxies, groups
+              if providers:
+                  cfg['proxy-providers'] = providers
+              else:
+                  cfg.pop('proxy-providers', None)
+              # Scope rewriting to the first YAML's own names, never a global rename map.
+              for field in ('rules',):
+                  rules = cfg.get(field, [])
+                  if not isinstance(rules, list):
+                      raise Invalid('Malformed rules')
+                  rewritten = []
+                  for rule in rules:
+                      if not isinstance(rule, str):
+                          raise Invalid('Malformed rule')
+                      parts = rule.split(',')
+                      pos = -2 if parts[-1].strip().lower() == 'no-resolve' else -1
+                      key = parts[pos].strip()
+                      parts[pos] = base_map.get(key, key)
+                      rewritten.append(','.join(parts))
+                  cfg[field] = rewritten or [f"MATCH,{groups[0]['name']}"]
+              # Preserve and rewrite dialer references in each source is not safe after dedup.
+              if any('dialer-proxy' in p for p in proxies):
+                  raise Invalid('dialer-proxy chains need a dedicated merge')
+              names = {p['name'] for p in proxies} | {g['name'] for g in groups} | BUILTIN
+              group_names = {g['name'] for g in groups}
+              graph = {}
+              for group in groups:
+                  refs = group.get('proxies', [])
+                  if any(n not in names for n in refs):
+                      raise Invalid('Unresolved group proxy/group reference')
+                  if any(n not in providers for n in group.get('use', [])):
+                      raise Invalid('Unresolved group provider reference')
+                  if not refs and not group.get('use') and not any(group.get(k) for k in ('include-all', 'include-all-proxies', 'include-all-providers')):
+                      raise Invalid('Empty proxy group')
+                  graph[group['name']] = [n for n in refs if n in group_names]
+              visiting, done = set(), set()
+              def visit(name):
+                  if name in visiting:
+                      raise Invalid('Circular proxy-group reference')
+                  if name in done:
+                      return
+                  visiting.add(name)
+                  for child in graph[name]:
+                      visit(child)
+                  visiting.remove(name)
+                  done.add(name)
+              for name in graph:
+                  visit(name)
+              for rule in cfg['rules']:
+                  parts = rule.split(',')
+                  pos = -2 if parts[-1].strip().lower() == 'no-resolve' else -1
+                  if parts[pos].strip() not in names:
+                      raise Invalid('Unresolved rule policy')
+              return yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False, width=4096)
+          
+          
+          def main():
+              items = []
+              for sub in subscriptions():
+                  try:
+                      parsed = fetch(sub)
+                      items.append((sub, parsed))
+                      print(f"Sub #{sub['n']}: validated {parsed['kind']}")
+                  except Invalid as exc:
+                      # Exception messages are ours only; never print remote bodies/URLs.
+                      raise Invalid(f"Sub #{sub['n']}: {exc}; previous backup unchanged") from None
+              try:
+                  body = merge(items)
+              except Invalid:
+                  raise
+              except Exception:
+                  raise Invalid('Malformed or unsupported configuration; previous backup unchanged') from None
+              tmp = OUTPUT.with_suffix('.tmp')
+              tmp.write_text(body, encoding='utf-8')
+              tmp.replace(OUTPUT)
+              print(f'Validated backup saved from {len(items)} subscription(s)')
+          
+          
           if __name__ == '__main__':
-              main()
+              try:
+                  main()
+              except Invalid as exc:
+                  print(f'ERROR: {exc}', file=sys.stderr)
+                  sys.exit(1)
+              except Exception:
+                  print('ERROR: unexpected configuration failure; previous backup unchanged', file=sys.stderr)
+                  sys.exit(1)
           PYEOF
-          python3 /tmp/fetch.py
-
-      - name: Save Backup
+          python "$RUNNER_TEMP/fetch.py"
+​
+      - name: Save validated backup
         run: |
-          git config --global user.name 'Backup Bot'
-          git config --global user.email 'bot@backup.service'
-          git add error_log.txt
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update logs [$(date -u +%Y-%m-%dT%H:%M)]" && git push)
+          set -euo pipefail
+          git config user.name 'Backup Bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- error_log.txt
+          if git diff --cached --quiet -- error_log.txt; then
+            echo "No changes."
+            exit 0
+          fi
+          git commit -m "Update backup [$(date -u +%Y-%m-%dT%H:%MZ)]"
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              exit 0
+            fi
+            if [ "$attempt" = "3" ]; then
+              echo "Push failed; check permissions, branch protection or concurrent edits."
+              exit 1
+            fi
+            git fetch origin "$GITHUB_REF_NAME"
+            git rebase "origin/$GITHUB_REF_NAME"
+            sleep 3
+          done
