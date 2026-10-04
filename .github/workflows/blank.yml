@@ -1,17 +1,17 @@
 name: System Backup
-​
+
 on:
   schedule:
     - cron: '0 */3 * * *'
   workflow_dispatch:
-​
+
 permissions:
   contents: write
-​
+
 concurrency:
   group: system-backup-${{ github.ref }}
   cancel-in-progress: false
-​
+
 jobs:
   backup-log:
     runs-on: ubuntu-latest
@@ -27,82 +27,92 @@ jobs:
             echo "Use a private repository, or explicitly accept the risk with ALLOW_PUBLIC_OUTPUT=true."
             exit 1
           fi
-​
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
-​
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-​
+
       - name: Install dependencies
         run: python -m pip install --disable-pip-version-check 'curl_cffi==0.13.0' 'PyYAML==6.0.2'
-​
+
       - name: Fetch and validate subscriptions
         env:
           VPN_URL: ${{ secrets.VPN_URL }}
-          HWID: ${{ secrets.HWID }}
-          DEVICE_MODEL: ${{ secrets.DEVICE_MODEL }}
-          VER_OS: ${{ secrets.VER_OS }}
-          USER_AGENT: ${{ secrets.USER_AGENT }}
+          HAPP_HWID: ${{ secrets.HAPP_HWID }}
+          HAPP_DEVICE_MODEL: ${{ secrets.HAPP_DEVICE_MODEL }}
+          HAPP_OS_VERSION: ${{ secrets.HAPP_OS_VERSION }}
+          HAPP_DEVICE_OS: ${{ secrets.HAPP_DEVICE_OS }}
+          HAPP_USER_AGENT: ${{ secrets.HAPP_USER_AGENT }}
           NAME_PREFIX: ${{ secrets.NAME_PREFIX }}
           VPN_URL_2: ${{ secrets.VPN_URL_2 }}
-          HWID_2: ${{ secrets.HWID_2 }}
-          DEVICE_MODEL_2: ${{ secrets.DEVICE_MODEL_2 }}
-          VER_OS_2: ${{ secrets.VER_OS_2 }}
-          USER_AGENT_2: ${{ secrets.USER_AGENT_2 }}
+          HAPP_HWID_2: ${{ secrets.HAPP_HWID_2 }}
+          HAPP_DEVICE_MODEL_2: ${{ secrets.HAPP_DEVICE_MODEL_2 }}
+          HAPP_OS_VERSION_2: ${{ secrets.HAPP_OS_VERSION_2 }}
+          HAPP_DEVICE_OS_2: ${{ secrets.HAPP_DEVICE_OS_2 }}
+          HAPP_USER_AGENT_2: ${{ secrets.HAPP_USER_AGENT_2 }}
           NAME_PREFIX_2: ${{ secrets.NAME_PREFIX_2 }}
           VPN_URL_3: ${{ secrets.VPN_URL_3 }}
-          HWID_3: ${{ secrets.HWID_3 }}
-          DEVICE_MODEL_3: ${{ secrets.DEVICE_MODEL_3 }}
-          VER_OS_3: ${{ secrets.VER_OS_3 }}
-          USER_AGENT_3: ${{ secrets.USER_AGENT_3 }}
+          HAPP_HWID_3: ${{ secrets.HAPP_HWID_3 }}
+          HAPP_DEVICE_MODEL_3: ${{ secrets.HAPP_DEVICE_MODEL_3 }}
+          HAPP_OS_VERSION_3: ${{ secrets.HAPP_OS_VERSION_3 }}
+          HAPP_DEVICE_OS_3: ${{ secrets.HAPP_DEVICE_OS_3 }}
+          HAPP_USER_AGENT_3: ${{ secrets.HAPP_USER_AGENT_3 }}
           NAME_PREFIX_3: ${{ secrets.NAME_PREFIX_3 }}
           VPN_URL_4: ${{ secrets.VPN_URL_4 }}
-          HWID_4: ${{ secrets.HWID_4 }}
-          DEVICE_MODEL_4: ${{ secrets.DEVICE_MODEL_4 }}
-          VER_OS_4: ${{ secrets.VER_OS_4 }}
-          USER_AGENT_4: ${{ secrets.USER_AGENT_4 }}
+          HAPP_HWID_4: ${{ secrets.HAPP_HWID_4 }}
+          HAPP_DEVICE_MODEL_4: ${{ secrets.HAPP_DEVICE_MODEL_4 }}
+          HAPP_OS_VERSION_4: ${{ secrets.HAPP_OS_VERSION_4 }}
+          HAPP_DEVICE_OS_4: ${{ secrets.HAPP_DEVICE_OS_4 }}
+          HAPP_USER_AGENT_4: ${{ secrets.HAPP_USER_AGENT_4 }}
           NAME_PREFIX_4: ${{ secrets.NAME_PREFIX_4 }}
           VPN_URL_5: ${{ secrets.VPN_URL_5 }}
-          HWID_5: ${{ secrets.HWID_5 }}
-          DEVICE_MODEL_5: ${{ secrets.DEVICE_MODEL_5 }}
-          VER_OS_5: ${{ secrets.VER_OS_5 }}
-          USER_AGENT_5: ${{ secrets.USER_AGENT_5 }}
+          HAPP_HWID_5: ${{ secrets.HAPP_HWID_5 }}
+          HAPP_DEVICE_MODEL_5: ${{ secrets.HAPP_DEVICE_MODEL_5 }}
+          HAPP_OS_VERSION_5: ${{ secrets.HAPP_OS_VERSION_5 }}
+          HAPP_DEVICE_OS_5: ${{ secrets.HAPP_DEVICE_OS_5 }}
+          HAPP_USER_AGENT_5: ${{ secrets.HAPP_USER_AGENT_5 }}
           NAME_PREFIX_5: ${{ secrets.NAME_PREFIX_5 }}
           VPN_URL_6: ${{ secrets.VPN_URL_6 }}
-          HWID_6: ${{ secrets.HWID_6 }}
-          DEVICE_MODEL_6: ${{ secrets.DEVICE_MODEL_6 }}
-          VER_OS_6: ${{ secrets.VER_OS_6 }}
-          USER_AGENT_6: ${{ secrets.USER_AGENT_6 }}
+          HAPP_HWID_6: ${{ secrets.HAPP_HWID_6 }}
+          HAPP_DEVICE_MODEL_6: ${{ secrets.HAPP_DEVICE_MODEL_6 }}
+          HAPP_OS_VERSION_6: ${{ secrets.HAPP_OS_VERSION_6 }}
+          HAPP_DEVICE_OS_6: ${{ secrets.HAPP_DEVICE_OS_6 }}
+          HAPP_USER_AGENT_6: ${{ secrets.HAPP_USER_AGENT_6 }}
           NAME_PREFIX_6: ${{ secrets.NAME_PREFIX_6 }}
           VPN_URL_7: ${{ secrets.VPN_URL_7 }}
-          HWID_7: ${{ secrets.HWID_7 }}
-          DEVICE_MODEL_7: ${{ secrets.DEVICE_MODEL_7 }}
-          VER_OS_7: ${{ secrets.VER_OS_7 }}
-          USER_AGENT_7: ${{ secrets.USER_AGENT_7 }}
+          HAPP_HWID_7: ${{ secrets.HAPP_HWID_7 }}
+          HAPP_DEVICE_MODEL_7: ${{ secrets.HAPP_DEVICE_MODEL_7 }}
+          HAPP_OS_VERSION_7: ${{ secrets.HAPP_OS_VERSION_7 }}
+          HAPP_DEVICE_OS_7: ${{ secrets.HAPP_DEVICE_OS_7 }}
+          HAPP_USER_AGENT_7: ${{ secrets.HAPP_USER_AGENT_7 }}
           NAME_PREFIX_7: ${{ secrets.NAME_PREFIX_7 }}
           VPN_URL_8: ${{ secrets.VPN_URL_8 }}
-          HWID_8: ${{ secrets.HWID_8 }}
-          DEVICE_MODEL_8: ${{ secrets.DEVICE_MODEL_8 }}
-          VER_OS_8: ${{ secrets.VER_OS_8 }}
-          USER_AGENT_8: ${{ secrets.USER_AGENT_8 }}
+          HAPP_HWID_8: ${{ secrets.HAPP_HWID_8 }}
+          HAPP_DEVICE_MODEL_8: ${{ secrets.HAPP_DEVICE_MODEL_8 }}
+          HAPP_OS_VERSION_8: ${{ secrets.HAPP_OS_VERSION_8 }}
+          HAPP_DEVICE_OS_8: ${{ secrets.HAPP_DEVICE_OS_8 }}
+          HAPP_USER_AGENT_8: ${{ secrets.HAPP_USER_AGENT_8 }}
           NAME_PREFIX_8: ${{ secrets.NAME_PREFIX_8 }}
           VPN_URL_9: ${{ secrets.VPN_URL_9 }}
-          HWID_9: ${{ secrets.HWID_9 }}
-          DEVICE_MODEL_9: ${{ secrets.DEVICE_MODEL_9 }}
-          VER_OS_9: ${{ secrets.VER_OS_9 }}
-          USER_AGENT_9: ${{ secrets.USER_AGENT_9 }}
+          HAPP_HWID_9: ${{ secrets.HAPP_HWID_9 }}
+          HAPP_DEVICE_MODEL_9: ${{ secrets.HAPP_DEVICE_MODEL_9 }}
+          HAPP_OS_VERSION_9: ${{ secrets.HAPP_OS_VERSION_9 }}
+          HAPP_DEVICE_OS_9: ${{ secrets.HAPP_DEVICE_OS_9 }}
+          HAPP_USER_AGENT_9: ${{ secrets.HAPP_USER_AGENT_9 }}
           NAME_PREFIX_9: ${{ secrets.NAME_PREFIX_9 }}
           VPN_URL_10: ${{ secrets.VPN_URL_10 }}
-          HWID_10: ${{ secrets.HWID_10 }}
-          DEVICE_MODEL_10: ${{ secrets.DEVICE_MODEL_10 }}
-          VER_OS_10: ${{ secrets.VER_OS_10 }}
-          USER_AGENT_10: ${{ secrets.USER_AGENT_10 }}
+          HAPP_HWID_10: ${{ secrets.HAPP_HWID_10 }}
+          HAPP_DEVICE_MODEL_10: ${{ secrets.HAPP_DEVICE_MODEL_10 }}
+          HAPP_OS_VERSION_10: ${{ secrets.HAPP_OS_VERSION_10 }}
+          HAPP_DEVICE_OS_10: ${{ secrets.HAPP_DEVICE_OS_10 }}
+          HAPP_USER_AGENT_10: ${{ secrets.HAPP_USER_AGENT_10 }}
           NAME_PREFIX_10: ${{ secrets.NAME_PREFIX_10 }}
         run: |
           cat > "$RUNNER_TEMP/fetch.py" <<'PYEOF'
@@ -154,10 +164,11 @@ jobs:
                   if u.scheme != 'https' or not u.hostname or u.username or u.password:
                       raise Invalid(f'Sub #{n}: use an HTTPS subscription URL without userinfo')
                   out.append(dict(n=n, url=url,
-                      hwid=setting('HWID', n, DEFAULT_HWID),
-                      model=setting('DEVICE_MODEL', n, DEFAULT_MODEL),
-                      os=setting('VER_OS', n, DEFAULT_OS),
-                      ua=setting('USER_AGENT', n, DEFAULT_UA),
+                      hwid=setting('HAPP_HWID', n, DEFAULT_HWID),
+                      model=setting('HAPP_DEVICE_MODEL', n, DEFAULT_MODEL),
+                      os=setting('HAPP_OS_VERSION', n, DEFAULT_OS),
+                      device_os=setting('HAPP_DEVICE_OS', n, 'iOS'),
+                      ua=setting('HAPP_USER_AGENT', n, DEFAULT_UA),
                       prefix=env('NAME_PREFIX' if n == 1 else f'NAME_PREFIX_{n}')))
               if not out:
                   raise Invalid('No VPN_URL secrets configured')
@@ -180,10 +191,60 @@ jobs:
                       raise Invalid('Unrecognized subscription line')
                   if any(c.isspace() for c in line):
                       raise Invalid('Unescaped whitespace in proxy URI')
+                  if line.lower().startswith('vmess://'):
+                      try:
+                          label = str(json.loads(b64decode(line.split('://', 1)[1].split('#', 1)[0])).get('ps', ''))
+                      except Exception:
+                          raise Invalid('Malformed VMess URI') from None
+                  else:
+                      label = unquote(urlsplit(line).fragment)
+                  if any(marker in label.lower() for marker in (
+                          'app not supported', 'device limit', 'hwid required',
+                          'too many devices', 'лимит устройств', 'превышен лимит')):
+                      raise Invalid('Provider returned a diagnostic node, not a usable subscription')
                   links.append(line)
               if not links:
                   raise Invalid('Empty proxy list')
               return links
+          
+          
+          def xray_configs(value):
+              configs = value if isinstance(value, list) else [value]
+              if not configs or not all(isinstance(c, dict) for c in configs):
+                  raise Invalid('Malformed Xray JSON subscription')
+              for cfg in configs:
+                  outbounds = cfg.get('outbounds')
+                  if not isinstance(outbounds, list) or not outbounds:
+                      raise Invalid('Xray configuration has no outbounds')
+                  usable = False
+                  for outbound in outbounds:
+                      if not isinstance(outbound, dict) or not outbound.get('protocol'):
+                          raise Invalid('Malformed Xray outbound')
+                      protocol = outbound['protocol']
+                      if protocol in {'freedom', 'blackhole', 'dns', 'loopback'}:
+                          continue
+                      settings = outbound.get('settings')
+                      if not isinstance(settings, dict):
+                          raise Invalid('Xray proxy outbound has no settings')
+                      if protocol in {'vless', 'vmess'}:
+                          endpoints = settings.get('vnext')
+                          if not isinstance(endpoints, list) or not endpoints:
+                              raise Invalid('Xray outbound has no server endpoints')
+                          for endpoint in endpoints:
+                              if not isinstance(endpoint, dict) or not endpoint.get('address'):
+                                  raise Invalid('Malformed Xray server endpoint')
+                              port = endpoint.get('port')
+                              if not isinstance(port, int) or not 1 <= port <= 65535:
+                                  raise Invalid('Invalid Xray server port')
+                              users = endpoint.get('users')
+                              if not isinstance(users, list) or not users or any(
+                                  not isinstance(user, dict) or not user.get('id') for user in users
+                              ):
+                                  raise Invalid('Xray outbound has no user identifiers')
+                      usable = True
+                  if not usable:
+                      raise Invalid('Xray configuration has no proxy outbound')
+              return configs
           
           
           def parse(text):
@@ -192,6 +253,14 @@ jobs:
                   raise Invalid('Empty or oversized subscription')
               if text.lower().startswith(('<!doctype', '<html', '<head', '<body')):
                   raise Invalid('HTML response, not a subscription')
+              if text.startswith(('{', '[')):
+                  try:
+                      native = json.loads(text)
+                  except ValueError:
+                      native = None
+                  if isinstance(native, list) or (isinstance(native, dict) and 'outbounds' in native):
+                      return dict(kind='xray-json', configs=xray_configs(native),
+                                  is_array=isinstance(native, list))
               try:
                   cfg = yaml.safe_load(text)
               except yaml.YAMLError:
@@ -214,14 +283,14 @@ jobs:
                   return dict(kind='links', links=uri_list(decoded), enc='b64',
                               comments=[l for l in decoded.splitlines() if l.strip().startswith('#')])
               except (ValueError, UnicodeError, Invalid):
-                  raise Invalid('Unsupported body: expected Clash YAML or proxy URI list') from None
+                  raise Invalid('Unsupported body: expected Xray JSON, Clash YAML or proxy URI list') from None
           
           
           def fetch(sub):
               from curl_cffi import requests
               headers = {
                   'User-Agent': sub['ua'], 'x-hwid': sub['hwid'],
-                  'x-device-os': 'iOS', 'x-device-model': sub['model'],
+                  'x-device-os': sub['device_os'], 'x-device-model': sub['model'],
                   'x-ver-os': sub['os'], 'Accept': '*/*',
                   'Accept-Language': 'en-US,en;q=0.9',
               }
@@ -387,6 +456,32 @@ jobs:
           
           
           def merge(items):
+              if any(p['kind'] == 'xray-json' for _, p in items):
+                  if not all(p['kind'] == 'xray-json' for _, p in items):
+                      raise Invalid('Cannot safely mix native Xray JSON with Clash/URI subscriptions')
+                  # Each Xray config is self-contained: preserve routing, balancers, XHTTP,
+                  # DNS, Reality, mux and outbound chains; never flatten into Clash nodes.
+                  if len(items) == 1:
+                      sub, parsed = items[0]
+                      configs = copy.deepcopy(parsed['configs'])
+                      if sub['prefix']:
+                          for cfg in configs:
+                              cfg['remarks'] = sub['prefix'] + str(cfg.get('remarks') or 'Configuration')
+                      result = configs if parsed['is_array'] else configs[0]
+                  else:
+                      configs, seen = [], set()
+                      for sub, parsed in items:
+                          for original in parsed['configs']:
+                              key = json.dumps({k: v for k, v in original.items() if k != 'remarks'},
+                                               sort_keys=True, ensure_ascii=False)
+                              if key in seen:
+                                  continue
+                              seen.add(key)
+                              cfg = copy.deepcopy(original)
+                              cfg['remarks'] = sub['prefix'] + str(cfg.get('remarks') or 'Configuration')
+                              configs.append(cfg)
+                      result = configs
+                  return json.dumps(result, ensure_ascii=False, indent=2) + '\n'
               if all(p['kind'] == 'links' for _, p in items):
                   links, seen = [], set()
                   for sub, parsed in items:
@@ -580,7 +675,7 @@ jobs:
                   sys.exit(1)
           PYEOF
           python "$RUNNER_TEMP/fetch.py"
-​
+
       - name: Save validated backup
         run: |
           set -euo pipefail
